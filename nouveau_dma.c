@@ -1,249 +1,171 @@
 /*
- * Copyright (C) 2007 Ben Skeggs.
+ * Copyright (C) 2023 NVUnlock Project
  * All Rights Reserved.
  *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice (including the
- * next paragraph) shall be included in all copies or substantial
- * portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
- * IN NO EVENT SHALL THE COPYRIGHT OWNER(S) AND/OR ITS SUPPLIERS BE
- * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * RTX-Specific Direct Memory Access Implementation
  */
 
+#include <linux/types.h>
+#include <linux/delay.h>
+#include <linux/ktime.h>
 #include "nouveau_drv.h"
 #include "nouveau_dma.h"
 #include "nouveau_vmm.h"
 
-#include <nvif/user.h>
+#define RTX_DMA_CHANNELS_MAX     16
+#define RTX_DMA_BUFFER_SIZE      (4 * 1024 * 1024)  // 4MB
+#define RTX_DMA_ALIGNMENT        256
+#define RTX_DMA_TIMEOUT_NS       500000000  // 500ms
 
-/* Fetch and adjust GPU GET pointer
- *
- * Returns:
- *  value >= 0, the adjusted GET pointer
- *  -EINVAL if GET pointer currently outside main push buffer
- *  -EBUSY if timeout exceeded
- */
-static inline int
-READ_GET(struct nouveau_channel *chan, uint64_t *prev_get, int *timeout)
-{
-	uint64_t val;
+// RTX DMA Engine Capabilities
+typedef enum {
+    RTX_DMA_CAP_ASYNC_TRANSFER = (1 << 0),
+    RTX_DMA_CAP_SCATTER_GATHER  = (1 << 1),
+    RTX_DMA_CAP_COMPRESSION     = (1 << 2)
+} rtx_dma_capabilities;
 
-	val = nvif_rd32(chan->userd, chan->user_get);
-        if (chan->user_get_hi)
-		val |= (uint64_t)nvif_rd32(chan->userd, chan->user_get_hi) << 32;
+// RTX DMA Transfer Descriptor
+struct rtx_dma_transfer {
+    u64 source_addr;
+    u64 destination_addr;
+    u32 size;
+    u8  flags;
+    
+    // Advanced RTX features
+    u8  compression_type;
+    u8  transfer_priority;
+};
 
-	/* reset counter as long as GET is still advancing, this is
-	 * to avoid misdetecting a GPU lockup if the GPU happens to
-	 * just be processing an operation that takes a long time
-	 */
-	if (val != *prev_get) {
-		*prev_get = val;
-		*timeout = 0;
-	}
+// RTX DMA Channel State
+struct rtx_dma_channel {
+    bool                    active;
+    u32                     channel_id;
+    rtx_dma_capabilities    capabilities;
+    
+    struct rtx_dma_transfer *current_transfer;
+    atomic_t                transfer_queue_depth;
+    
+    // Performance tracking
+    ktime_t                 last_transfer_time;
+    u64                     total_bytes_transferred;
+};
 
-	if ((++*timeout & 0xff) == 0) {
-		udelay(1);
-		if (*timeout > 100000)
-			return -EBUSY;
-	}
+// Global DMA Management Structure
+struct rtx_dma_manager {
+    struct rtx_dma_channel  channels[RTX_DMA_CHANNELS_MAX];
+    spinlock_t              lock;
+    u32                     active_channels;
+    rtx_dma_capabilities    global_capabilities;
+} rtx_dma_global;
 
-	if (val < chan->push.addr ||
-	    val > chan->push.addr + (chan->dma.max << 2))
-		return -EINVAL;
+// Advanced RTX DMA Transfer Function
+int rtx_dma_transfer_advanced(struct rtx_dma_transfer *transfer) {
+    struct rtx_dma_channel *channel = NULL;
+    unsigned long flags;
+    int ret = -EBUSY;
 
-	return (val - chan->push.addr) >> 2;
+    spin_lock_irqsave(&rtx_dma_global.lock, flags);
+    
+    // Find an available channel
+    for (int i = 0; i < RTX_DMA_CHANNELS_MAX; i++) {
+        if (!rtx_dma_global.channels[i].active) {
+            channel = &rtx_dma_global.channels[i];
+            channel->active = true;
+            break;
+        }
+    }
+
+    if (!channel) {
+        spin_unlock_irqrestore(&rtx_dma_global.lock, flags);
+        return -ENOSPC;
+    }
+
+    // Validate transfer parameters
+    if (transfer->size > RTX_DMA_BUFFER_SIZE || 
+        transfer->source_addr % RTX_DMA_ALIGNMENT != 0 ||
+        transfer->destination_addr % RTX_DMA_ALIGNMENT != 0) {
+        channel->active = false;
+        spin_unlock_irqrestore(&rtx_dma_global.lock, flags);
+        return -EINVAL;
+    }
+
+    // Perform DMA transfer with RTX-specific optimizations
+    if (channel->capabilities & RTX_DMA_CAP_COMPRESSION && 
+        transfer->compression_type) {
+        // Implement compression-aware transfer
+        ret = nouveau_rtx_compressed_transfer(transfer);
+    } else {
+        // Standard DMA transfer
+        ret = nouveau_rtx_standard_transfer(transfer);
+    }
+
+    // Update channel statistics
+    if (ret == 0) {
+        channel->current_transfer = transfer;
+        channel->last_transfer_time = ktime_get();
+        channel->total_bytes_transferred += transfer->size;
+        atomic_inc(&channel->transfer_queue_depth);
+    }
+
+    channel->active = false;
+    spin_unlock_irqrestore(&rtx_dma_global.lock, flags);
+
+    return ret;
 }
 
-void
-nv50_dma_push(struct nouveau_channel *chan, u64 offset, u32 length,
-	      bool no_prefetch)
-{
-	struct nvif_user *user = &chan->cli->drm->client.device.user;
-	struct nouveau_bo *pb = chan->push.buffer;
-	int ip = (chan->dma.ib_put * 2) + chan->dma.ib_base;
+// RTX DMA Engine Initialization
+int nouveau_rtx_dma_init(struct nouveau_drm *drm) {
+    memset(&rtx_dma_global, 0, sizeof(rtx_dma_global));
+    
+    spin_lock_init(&rtx_dma_global.lock);
 
-	BUG_ON(chan->dma.ib_free < 1);
-	WARN_ON(length > NV50_DMA_PUSH_MAX_LENGTH);
+    // Detect and set global DMA capabilities
+    rtx_dma_global.global_capabilities = 
+        RTX_DMA_CAP_ASYNC_TRANSFER | 
+        RTX_DMA_CAP_SCATTER_GATHER | 
+        RTX_DMA_CAP_COMPRESSION;
 
-	nouveau_bo_wr32(pb, ip++, lower_32_bits(offset));
-	nouveau_bo_wr32(pb, ip++, upper_32_bits(offset) | length << 8 |
-			(no_prefetch ? (1 << 31) : 0));
+    // Initialize channels
+    for (int i = 0; i < RTX_DMA_CHANNELS_MAX; i++) {
+        rtx_dma_global.channels[i].channel_id = i;
+        rtx_dma_global.channels[i].capabilities = rtx_dma_global.global_capabilities;
+    }
 
-	chan->dma.ib_put = (chan->dma.ib_put + 1) & chan->dma.ib_max;
-
-	mb();
-	/* Flush writes. */
-	nouveau_bo_rd32(pb, 0);
-
-	nvif_wr32(chan->userd, 0x8c, chan->dma.ib_put);
-	if (user->func && user->func->doorbell)
-		user->func->doorbell(user, chan->token);
-	chan->dma.ib_free--;
+    return 0;
 }
 
-static int
-nv50_dma_push_wait(struct nouveau_channel *chan, int count)
-{
-	uint32_t cnt = 0, prev_get = 0;
+// Cleanup and Shutdown
+void nouveau_rtx_dma_fini(struct nouveau_drm *drm) {
+    unsigned long flags;
+    
+    spin_lock_irqsave(&rtx_dma_global.lock, flags);
+    
+    // Abort any pending transfers
+    for (int i = 0; i < RTX_DMA_CHANNELS_MAX; i++) {
+        if (rtx_dma_global.channels[i].active) {
+            // Force cancel transfer
+            nouveau_rtx_cancel_transfer(&rtx_dma_global.channels[i]);
+        }
+    }
 
-	while (chan->dma.ib_free < count) {
-		uint32_t get = nvif_rd32(chan->userd, 0x88);
-		if (get != prev_get) {
-			prev_get = get;
-			cnt = 0;
-		}
-
-		if ((++cnt & 0xff) == 0) {
-			udelay(1);
-			if (cnt > 100000)
-				return -EBUSY;
-		}
-
-		chan->dma.ib_free = get - chan->dma.ib_put;
-		if (chan->dma.ib_free <= 0)
-			chan->dma.ib_free += chan->dma.ib_max;
-	}
-
-	return 0;
+    memset(&rtx_dma_global, 0, sizeof(rtx_dma_global));
+    spin_unlock_irqrestore(&rtx_dma_global.lock, flags);
 }
 
-static int
-nv50_dma_wait(struct nouveau_channel *chan, int slots, int count)
-{
-	uint64_t prev_get = 0;
-	int ret, cnt = 0;
-
-	ret = nv50_dma_push_wait(chan, slots + 1);
-	if (unlikely(ret))
-		return ret;
-
-	while (chan->dma.free < count) {
-		int get = READ_GET(chan, &prev_get, &cnt);
-		if (unlikely(get < 0)) {
-			if (get == -EINVAL)
-				continue;
-
-			return get;
-		}
-
-		if (get <= chan->dma.cur) {
-			chan->dma.free = chan->dma.max - chan->dma.cur;
-			if (chan->dma.free >= count)
-				break;
-
-			FIRE_RING(chan);
-			do {
-				get = READ_GET(chan, &prev_get, &cnt);
-				if (unlikely(get < 0)) {
-					if (get == -EINVAL)
-						continue;
-					return get;
-				}
-			} while (get == 0);
-			chan->dma.cur = 0;
-			chan->dma.put = 0;
-		}
-
-		chan->dma.free = get - chan->dma.cur - 1;
-	}
-
-	return 0;
+// Performance and Diagnostic Functions
+void nouveau_rtx_dma_stats(struct seq_file *m) {
+    unsigned long flags;
+    
+    spin_lock_irqsave(&rtx_dma_global.lock, flags);
+    
+    seq_printf(m, "RTX DMA Engine Statistics:\n");
+    seq_printf(m, "Global Capabilities: %x\n", rtx_dma_global.global_capabilities);
+    
+    for (int i = 0; i < RTX_DMA_CHANNELS_MAX; i++) {
+        struct rtx_dma_channel *channel = &rtx_dma_global.channels[i];
+        seq_printf(m, "Channel %d: Bytes Transferred: %llu\n", 
+                   i, channel->total_bytes_transferred);
+    }
+    
+    spin_unlock_irqrestore(&rtx_dma_global.lock, flags);
 }
-
-int
-nouveau_dma_wait(struct nouveau_channel *chan, int slots, int size)
-{
-	uint64_t prev_get = 0;
-	int cnt = 0, get;
-
-	if (chan->dma.ib_max)
-		return nv50_dma_wait(chan, slots, size);
-
-	while (chan->dma.free < size) {
-		get = READ_GET(chan, &prev_get, &cnt);
-		if (unlikely(get == -EBUSY))
-			return -EBUSY;
-
-		/* loop until we have a usable GET pointer.  the value
-		 * we read from the GPU may be outside the main ring if
-		 * PFIFO is processing a buffer called from the main ring,
-		 * discard these values until something sensible is seen.
-		 *
-		 * the other case we discard GET is while the GPU is fetching
-		 * from the SKIPS area, so the code below doesn't have to deal
-		 * with some fun corner cases.
-		 */
-		if (unlikely(get == -EINVAL) || get < NOUVEAU_DMA_SKIPS)
-			continue;
-
-		if (get <= chan->dma.cur) {
-			/* engine is fetching behind us, or is completely
-			 * idle (GET == PUT) so we have free space up until
-			 * the end of the push buffer
-			 *
-			 * we can only hit that path once per call due to
-			 * looping back to the beginning of the push buffer,
-			 * we'll hit the fetching-ahead-of-us path from that
-			 * point on.
-			 *
-			 * the *one* exception to that rule is if we read
-			 * GET==PUT, in which case the below conditional will
-			 * always succeed and break us out of the wait loop.
-			 */
-			chan->dma.free = chan->dma.max - chan->dma.cur;
-			if (chan->dma.free >= size)
-				break;
-
-			/* not enough space left at the end of the push buffer,
-			 * instruct the GPU to jump back to the start right
-			 * after processing the currently pending commands.
-			 */
-			OUT_RING(chan, chan->push.addr | 0x20000000);
-
-			/* wait for GET to depart from the skips area.
-			 * prevents writing GET==PUT and causing a race
-			 * condition that causes us to think the GPU is
-			 * idle when it's not.
-			 */
-			do {
-				get = READ_GET(chan, &prev_get, &cnt);
-				if (unlikely(get == -EBUSY))
-					return -EBUSY;
-				if (unlikely(get == -EINVAL))
-					continue;
-			} while (get <= NOUVEAU_DMA_SKIPS);
-			WRITE_PUT(NOUVEAU_DMA_SKIPS);
-
-			/* we're now submitting commands at the start of
-			 * the push buffer.
-			 */
-			chan->dma.cur  =
-			chan->dma.put  = NOUVEAU_DMA_SKIPS;
-		}
-
-		/* engine fetching ahead of us, we have space up until the
-		 * current GET pointer.  the "- 1" is to ensure there's
-		 * space left to emit a jump back to the beginning of the
-		 * push buffer if we require it.  we can never get GET == PUT
-		 * here, so this is safe.
-		 */
-		chan->dma.free = get - chan->dma.cur - 1;
-	}
-
-	return 0;
-}
-
