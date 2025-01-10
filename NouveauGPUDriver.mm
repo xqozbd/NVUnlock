@@ -151,6 +151,7 @@
         return NO;
     }
 
+
     // Enable PCI device
     [_pciDevice setMemoryEnable:YES];
     [_pciDevice setBusMasterEnable:YES];
