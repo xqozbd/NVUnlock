@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>English</string>
+    <key>CFBundleExecutable</key>
+    <string>NouveauGPUDriver</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.yourcompany.driver.NouveauGPUDriver</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Nouveau GPU Driver</string>
+    <key>CFBundlePackageType</key>
+    <string>KEXT</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>IOKitPersonalities</key>
+    <dict>
+        <key>NouveauGPUDriver</key>
+        <dict>
+            <key>CFBundleIdentifier</key>
+            <string>com.yourcompany.driver.NouveauGPUDriver</string>
+            <key>IOClass</key>
+            <string>NouveauGPUDriver</string>
+            <key>IOMatchCategory</key>
+            <string>NouveauGPUDriver</string>
+            <key>IOPCIMatch</key>
+            <string>0x10DE 0x1F10 0x1F11 0x1F12 0x1F13 0x1F14 0x1F15 0x1E04 0x2482 0x2460 0x2470 0x2484 0x2206 0x2204 0x2907 0x2882 0x2804 0x2881 0x2704 0x2684 0x2B80 0x2B82 0x2B84</string>
+            <key>IOProviderClass</key>
+            <string>IOPCIDevice</string>
+        </dict>
+    </dict>
+    <key>OSBundleLibraries</key>
+    <dict>
+        <key>com.apple.kpi.iokit</key>
+        <string>8.0.0</string>
+        <key>com.apple.kpi.libkern</key>
+        <string>8.0.0</string>
+    </dict>
+</dict>
+</plist>
