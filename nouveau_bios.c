@@ -204,7 +204,7 @@ int call_lvds_script(struct drm_device *dev, struct dcb_output *dcbent, int head
 
     sel_clk = NVReadRAMDAC(dev, 0, NV_PRAMDAC_SEL_CLK) & ~0x50000;
     NVWriteRAMDAC(dev, 0, NV_PRAMDAC_SEL_CLK, sel_clk | sel_clk_binding);
-    nvif_wr ```c
+    nvif_wr
 32(device, NV_PBUS_POWERCTRL_2, 0);
 
     return ret;
@@ -494,7 +494,6 @@ static void parse_script_table_pointers(struct nvbios *bios, uint16_t offset) {
 
 static int parse_bit_A_tbl_entry(struct drm_device *dev, struct nvbios *bios, struct bit_entry *bitentry) {
     struct nouveau_drm *drm = nouveau_drm(dev);
- ```c
     uint16_t load_table_ptr;
     uint8_t version, headerlen, entrylen, num_entries;
 
@@ -606,7 +605,6 @@ static int parse_bit_M_tbl_entry(struct drm_device *dev, struct nvbios *bios, st
 
     if (bitentry->version < 2) {
         bios->ram_restrict_group_count = bios->data[bitentry->offset + 2];
-        ```c
         bios->ram_restrict_tbl_ptr = ROM16(bios->data[bitentry->offset + 3]);
     } else {
         bios->ram_restrict_group_count = bios->data[bitentry->offset + 0];
@@ -791,7 +789,7 @@ static uint16_t findstr(uint8_t *data, int n, const uint8_t *str, int len) {
 
     for (i = 0; i <= (n - len); i++) {
         for (j = 0; j < len; j++)
-            if (data[i + j] ```c
+            if (data[i + j]
                 != str[j])
                 break;
         if (j == len)
@@ -894,8 +892,6 @@ u8 *olddcb_conn(struct drm_device *dev, u8 idx) {
 
 static struct dcb_output *new_dcb_entry(struct dcb_table *dcb) {
     struct dcb_output *entry = &dcb->entry[dcb->entries];
-
- ```c
     memset(entry, 0, sizeof(struct dcb_output));
     entry->index = dcb->entries++;
 
@@ -998,7 +994,7 @@ static bool parse_dcb20_entry(struct drm_device *dev, struct dcb_table *dcb, uin
     case DCB_OUTPUT_TMDS:
         if (dcb->version >= 0x40) {
             entry->tmdsconf.sor.link = (conf & 0x00000030) >> 4;
-            entry->extdev = (conf & 0x0000ff00) >> 8 ```c
+            entry->extdev = (conf & 0x0000ff00) >> 8 
             link = entry->tmdsconf.sor.link;
         } else if (dcb->version >= 0x30) {
             entry->tmdsconf.slave_addr = (conf & 0x00000700) >> 8;
@@ -1107,7 +1103,7 @@ static void merge_like_dcb_entries(struct drm_device *dev, struct dcb_table *dcb
         if (dcb->entry[i].type == 100)
             continue;
 
-        if (newentries != i) ```c
+        if (newentries != i) 
             dcb->entry[newentries] = dcb->entry[i];
             dcb->entry[newentries].index = newentries;
         }
@@ -1200,7 +1196,7 @@ static void fabricate_dcb_encoder_table(struct drm_device *dev, struct nvbios *b
     if (nv04_tv_identify(dev, bios->legacy.i2c_indices.tv) >= 0)
         fabricate_dcb_output(dcb, DCB_OUTPUT_TV, bios->legacy.i2c_indices.tv, all_heads, DCB_OUTPUT_A);
     else if (bios->tmds.output0_script_ptr || bios->tmds.output1_script_ptr)
-        fabricate_dcb_output(dcb, DCB_OUTPUT_TMDS, ```c
+        fabricate_dcb_output(dcb, DCB_OUTPUT_TMDS, 
         bios->legacy.i2c_indices.panel, all_heads, DCB_OUTPUT_B);
 }
 
@@ -1302,7 +1298,7 @@ static int load_nv17_hwsq_ucode_entry(struct drm_device *dev, struct nvbios *bio
     uint16_t hwsq_entry_offset;
     int i;
 
-    if (bios->data ```c
+    if (bios->data 
 [hwsq_offset] <= entry) {
         NV_ERROR(drm, "Too few entries in HW sequencer table for requested entry\n");
         return -ENOENT;
@@ -1415,7 +1411,7 @@ int nouveau_run_vbios_init(struct drm_device *dev) {
 
 static bool nouveau_bios_posted(struct drm_device *dev) {
     struct nouveau_drm *drm = nouveau_drm(dev);
- ```c
+ 
     unsigned htotal;
 
     if (drm->client.device.info.family >= NV_DEVICE_INFO_V0_TESLA)
