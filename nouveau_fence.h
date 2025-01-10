@@ -99,5 +99,3 @@ struct nv84_fence_priv {
 int  nv84_fence_context_new(struct nouveau_channel *);
 
 #endif
-
- - Test 
