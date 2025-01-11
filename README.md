@@ -1,11 +1,12 @@
-Uhhhh stupid shit happening by retard and Void
+## Uhhhh stupid shit happening by retard and Void
 
 
 
 
 
-# Skibidi Rizz Ohio - Void
+### - Void
+> Gonna Be Real, Idk What im doing
 
 
-
-# remind me to blow my brains out -xqozbd
+### - xqozbd
+> remind me to blow my brains out
