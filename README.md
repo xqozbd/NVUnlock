@@ -1,14 +1,37 @@
-# 💻 Skibidi Rizz Ohio Terminal
+
+# 💻 Skibidi Rizz Ohio - Void 💥  
 
 ```
-C:\Users\Admin> echo Uhhhh stupid shit happening by retard and Void
+$$\   $$\ $$\    $$\                                  
+$$$\  $$ |$$ |   $$ |                                 
+$$$$\ $$ |$$ |   $$ |                                 
+$$ $$\$$ |\$$\  $$  |                                 
+$$ \$$$$ | \$$\$$  /                                  
+$$ |\$$$ |  \$$$  /                                   
+$$ | \$$ |   \$  /                                    
+\__|  \__|    \_/                                     
+                                                      
+$$\   $$\           $$\                     $$\       
+$$ |  $$ |          $$ |                    $$ |      
+$$ |  $$ |$$$$$$$\  $$ | $$$$$$\   $$$$$$$\ $$ |  $$\ 
+$$ |  $$ |$$  __$$\ $$ |$$  __$$\ $$  _____|$$ | $$  |
+$$ |  $$ |$$ |  $$ |$$ |$$ /  $$ |$$ /      $$$$$$  / 
+$$ |  $$ |$$ |  $$ |$$ |$$ |  $$ |$$ |      $$  _$$<  
+\$$$$$$  |$$ |  $$ |$$ |\$$$$$$  |\$$$$$$$\ $$ | \$$\ 
+ \______/ \__|  \__|\__| \______/  \_______|\__|  \__|
+```
+
+### The Chaos Unleashed  
+```bash
+# Uhhhh stupid shit happening by retard and Void
+$ echo "Uhhhh stupid shit happening by retard and Void"
 Uhhhh stupid shit happening by retard and Void
 
-C:\Users\Void> echo Welcome to Skibidi Rizz Ohio by Void
+# Welcome to Skibidi Rizz Ohio
+$ echo "Welcome to Skibidi Rizz Ohio by Void"
 Welcome to Skibidi Rizz Ohio - Void
 
-C:\Users\xqozbd> echo remind me to blow my brains out
-remind me to blow my brains out -xqozbd
+# A note from xqozbd
+$ echo "remind me to blow my brains out"
+remind me to blow my brains out - xqozbd
 ```
-
----
