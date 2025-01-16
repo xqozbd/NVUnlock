@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Ben Skeggs.
+ * Copyright (C) 2023 NVIDIA Corporation.
  * All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
@@ -21,10 +21,19 @@
  * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
  */
 
-#include <drm/drm_gem_ttm_helper.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/dma-buf.h>
+#include <linux/slab.h>
+#include <linux/device.h>
+#include <linux/pm_runtime.h>
+
+#include <drm/drm_gem.h>
+#include <drm/drm_device.h>
+#include <drm/drm_file.h>
+#include <drm/drm_print.h>
 
 #include "nouveau_drv.h"
 #include "nouveau_dma.h"
@@ -92,7 +101,6 @@ void nouveau_gem_object_del(struct drm_gem_object *gem) {
     pm_runtime_mark_last_busy(dev);
     pm_runtime_put_autosuspend(dev);
 }
-
 int nouveau_gem_object_open(struct drm_gem_object *gem, struct drm_file *file_priv) {
     struct nouveau_cli *cli = nouveau_cli(file_priv);
     struct nouveau_bo *nvbo = nouveau_gem_object(gem);
@@ -160,7 +168,8 @@ static void nouveau_gem_object_unmap(struct nouveau_bo *nvbo, struct nouveau_vma
         return;
     }
 
-    if (!(work = kmalloc(sizeof(*work), GFP_KERNEL))) {
+    work = kmalloc(sizeof(*work), GFP_KERNEL);
+    if (!work) {
         WARN_ON(dma_fence_wait_timeout(fence, false, 2 * HZ) <= 0);
         nouveau_gem_object_delete(vma);
         return;
@@ -203,7 +212,6 @@ void nouveau_gem_object_close(struct drm_gem_object *gem, struct drm_file *file_
     }
     ttm_bo_unreserve(&nvbo->bo);
 }
-
 const struct drm_gem_object_funcs nouveau_gem_object_funcs = {
     .free = nouveau_gem_object_del,
     .open = nouveau_gem_object_open,
@@ -220,7 +228,6 @@ const struct drm_gem_object_funcs nouveau_gem_object_funcs = {
 
 int nouveau_gem_new(struct nouveau_cli *cli, u64 size, int align, uint32_t domain,
                     uint32_t tile_mode, uint32_t tile_flags,
-                    struct nouveau_bo **pn
                     struct nouveau_bo **pnvbo) {
     struct nouveau_drm *drm = cli->drm;
     struct nouveau_uvmm *uvmm = nouveau_cli_uvmm(cli);
@@ -317,7 +324,6 @@ static int nouveau_gem_info(struct drm_file *file_priv, struct drm_gem_object *g
 
     return 0;
 }
-
 int nouveau_gem_ioctl_new(struct drm_device *dev, void *data,
                            struct drm_file *file_priv) {
     struct nouveau_cli *cli = nouveau_cli(file_priv);
@@ -386,7 +392,7 @@ static void validate_fini_no_ticket(struct validate_op *op, struct nouveau_chann
     struct drm_nouveau_gem_pushbuf_bo *b;
 
     while (!list_empty(&op->list)) {
-        nvbo = list_entry(op->list.next, struct nouveau_bo, entry);
+        nvbo = list_first_entry(&op->list, struct nouveau_bo, entry);
         b = &pbbo[nvbo->pbbo_index];
 
         if (likely(fence)) {
@@ -418,7 +424,6 @@ static void validate_fini(struct validate_op *op, struct nouveau_channel *chan,
     validate_fini_no_ticket(op, chan, fence, pbbo);
     ww_acquire_fini(&op->ticket);
 }
-
 static int validate_init(struct nouveau_channel *chan, struct drm_file *file_priv,
                          struct drm_nouveau_gem_pushbuf_bo *pbbo,
                          int nr_buffers, struct validate_op *op) {
@@ -443,7 +448,6 @@ retry:
         struct nouveau_bo *nvbo;
 
         gem = drm_gem_object_lookup(file_priv, b->handle);
-        if 
         if (!gem) {
             NV_PRINTK(err, cli, "Unknown handle 0x%08x\n", b->handle);
             ret = -ENOENT;
@@ -524,7 +528,6 @@ retry:
         validate_fini(op, chan, NULL, NULL);
     return ret;
 }
-
 static int validate_list(struct nouveau_channel *chan,
                          struct list_head *list, struct drm_nouveau_gem_pushbuf_bo *pbbo) {
     struct nouveau_cli *cli = chan->cli;
@@ -552,7 +555,8 @@ static int validate_list(struct nouveau_channel *chan,
 
         ret = nouveau_fence_sync(nvbo, chan, !!b->write_domains, true);
         if (unlikely(ret)) {
-            if (ret != -ERESTARTSYS NV_PRINTK(err, cli, "fail post-validate sync\n");
+            if (ret != -ERESTARTSYS)
+                NV_PRINTK(err, cli, "fail post-validate sync\n");
             return ret;
         }
 
@@ -610,7 +614,6 @@ static int nouveau_gem_pushbuf_validate(struct nouveau_channel *chan,
 
     return 0;
 }
-
 static int nouveau_gem_pushbuf_reloc_apply(struct nouveau_cli *cli,
                                             struct drm_nouveau_gem_pushbuf *req,
                                             struct drm_nouveau_gem_pushbuf_reloc *reloc,
@@ -670,8 +673,6 @@ static int nouveau_gem_pushbuf_reloc_apply(struct nouveau_cli *cli,
             else
                 data |= r->vor;
         }
-
-        l 
         lret = dma_resv_wait_timeout(nvbo->bo.base.resv, DMA_RESV_USAGE_BOOKKEEP, false, 15 * HZ);
         if (!lret)
             ret = -EBUSY;
@@ -766,8 +767,7 @@ int nouveau_gem_ioctl_pushbuf(struct drm_device *dev, void *data, struct drm_fil
             goto out_prevalid;
         }
     }
-
-revalidate:
+    revalidate:
     ret = nouveau_gem_pushbuf_validate(chan, file_priv, bo,
                                        req->nr_buffers, &op, &do_reloc);
     if (ret) {
@@ -778,7 +778,7 @@ revalidate:
 
     if (do_reloc) {
         if (!reloc) {
-            validate_f ini(&op, chan, NULL, bo);
+            validate_fini(&op, chan, NULL, bo);
             reloc = u_memcpya(req->relocs, req->nr_relocs, sizeof(*reloc));
             if (IS_ERR(reloc)) {
                 ret = PTR_ERR(reloc);
@@ -889,8 +889,7 @@ out:
                 continue;
 
             if (copy_to_user(&upbbo[i].presumed, &bo[i].presumed,
-                             sizeof(bo[i
-                             .presumed))) {
+                             sizeof(bo[i].presumed))) {
                 ret = -EFAULT;
                 break;
             }
@@ -917,7 +916,6 @@ out_next:
 
     return nouveau_abi16_put(abi16, ret);
 }
-
 int nouveau_gem_ioctl_cpu_prep(struct drm_device *dev, void *data,
                                struct drm_file *file_priv) {
     struct drm_nouveau_gem_cpu_prep *req = data;
@@ -979,3 +977,8 @@ int nouveau_gem_ioctl_info(struct drm_device *dev, void *data,
     drm_gem_object_put(gem);
     return ret;
 }
+
+// Add module licensing and any necessary module initialization/cleanup
+MODULE_AUTHOR("NVIDIA Corporation");
+MODULE_DESCRIPTION("NVIDIA Nouveau GPU Driver GEM Management");
+MODULE_LICENSE("GPL");
