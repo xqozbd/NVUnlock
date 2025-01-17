@@ -118,7 +118,7 @@ nv50_edp_get_brightness(struct backlight_device *bd)
 {
 	struct drm_connector *connector = dev_get_drvdata(bd->dev.parent);
 	struct drm_device *dev = connector->dev;
-	struct drm_crtc *crtc;
+		struct drm_crtc *crtc;
 	struct drm_modeset_acquire_ctx ctx;
 	int ret = 0;
 
@@ -254,7 +254,7 @@ nv50_backlight_init(struct nouveau_backlight *bl,
 		if (ret < 0)
 			return ret;
 
-		/* TODO: Add support for hybrid PWM/DPCD panels */
+				/* TODO: Add support for hybrid PWM/DPCD panels */
 		if (drm_edp_backlight_supported(edp_dpcd) &&
 		    (edp_dpcd[1] & DP_EDP_BACKLIGHT_AUX_ENABLE_CAP) &&
 		    (edp_dpcd[2] & DP_EDP_BACKLIGHT_BRIGHTNESS_AUX_SET_CAP)) {
@@ -378,7 +378,7 @@ fail_alloc:
 	 * try registering an ACPI video backlight device instead.
 	 */
 	if (ret == 0)
-		nouveau_acpi_video_register_backlight();
+				nouveau_acpi_video_register_backlight();
 
 	return ret;
 }

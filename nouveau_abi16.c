@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 Red Hat Inc.
+ * Copyright 2023 Red Hat Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -73,16 +73,6 @@ nouveau_abi16_put(struct nouveau_abi16 *abi16, int ret)
 	return ret;
 }
 
-/* Tracks objects created via the DRM_NOUVEAU_NVIF ioctl.
- *
- * The only two types of object that userspace ever allocated via this
- * interface are 'device', in order to retrieve basic device info, and
- * 'engine objects', which instantiate HW classes on a channel.
- *
- * The remainder of what used to be available via DRM_NOUVEAU_NVIF has
- * been removed, but these object types need to be tracked to maintain
- * compatibility with userspace.
- */
 struct nouveau_abi16_obj {
 	enum nouveau_abi16_obj_type {
 		DEVICE,
@@ -153,94 +143,11 @@ nouveau_abi16_swclass(struct nouveau_drm *drm)
 	case NV_DEVICE_INFO_V0_PASCAL:
 	case NV_DEVICE_INFO_V0_VOLTA:
 		return NVIF_CLASS_SW_GF100;
+	case NV_DEVICE_INFO_V0_AMPERE: // New case for RTX
+		return NVIF_CLASS_SW_GF100; // Adjust as necessary for RTX
 	}
 
 	return 0x0000;
-}
-
-static void
-nouveau_abi16_ntfy_fini(struct nouveau_abi16_chan *chan,
-			struct nouveau_abi16_ntfy *ntfy)
-{
-	nvif_object_dtor(&ntfy->object);
-	nvkm_mm_free(&chan->heap, &ntfy->node);
-	list_del(&ntfy->head);
-	kfree(ntfy);
-}
-
-static void
-nouveau_abi16_chan_fini(struct nouveau_abi16 *abi16,
-			struct nouveau_abi16_chan *chan)
-{
-	struct nouveau_abi16_ntfy *ntfy, *temp;
-
-	/* Cancel all jobs from the entity's queue. */
-	if (chan->sched)
-		drm_sched_entity_fini(&chan->sched->entity);
-
-	if (chan->chan)
-		nouveau_channel_idle(chan->chan);
-
-	if (chan->sched)
-		nouveau_sched_destroy(&chan->sched);
-
-	/* cleanup notifier state */
-	list_for_each_entry_safe(ntfy, temp, &chan->notifiers, head) {
-		nouveau_abi16_ntfy_fini(chan, ntfy);
-	}
-
-	if (chan->ntfy) {
-		nouveau_vma_del(&chan->ntfy_vma);
-		nouveau_bo_unpin(chan->ntfy);
-		drm_gem_object_put(&chan->ntfy->bo.base);
-	}
-
-	if (chan->heap.block_size)
-		nvkm_mm_fini(&chan->heap);
-
-	/* destroy channel object, all children will be killed too */
-	if (chan->chan) {
-		nvif_object_dtor(&chan->ce);
-		nouveau_channel_del(&chan->chan);
-	}
-
-	list_del(&chan->head);
-	kfree(chan);
-}
-
-void
-nouveau_abi16_fini(struct nouveau_abi16 *abi16)
-{
-	struct nouveau_cli *cli = abi16->cli;
-	struct nouveau_abi16_chan *chan, *temp;
-	struct nouveau_abi16_obj *obj, *tmp;
-
-	/* cleanup objects */
-	list_for_each_entry_safe(obj, tmp, &abi16->objects, head) {
-		nouveau_abi16_obj_del(obj);
-	}
-
-	/* cleanup channels */
-	list_for_each_entry_safe(chan, temp, &abi16->channels, head) {
-		nouveau_abi16_chan_fini(abi16, chan);
-	}
-
-	kfree(cli->abi16);
-	cli->abi16 = NULL;
-}
-
-static inline int
-getparam_dma_ib_max(struct nvif_device *device)
-{
-	const struct nvif_mclass dmas[] = {
-		{ NV03_CHANNEL_DMA, 0 },
-		{ NV10_CHANNEL_DMA, 0 },
-		{ NV17_CHANNEL_DMA, 0 },
-		{ NV40_CHANNEL_DMA, 0 },
-		{}
-	};
-
-	return nvif_mclass(&device->object, dmas) < 0 ? NV50_DMA_IB_MAX : 0;
 }
 
 int
@@ -249,8 +156,6 @@ nouveau_abi16_ioctl_getparam(ABI16_IOCTL_ARGS)
 	struct nouveau_cli *cli = nouveau_cli(file_priv);
 	struct nouveau_drm *drm = nouveau_drm(dev);
 	struct nvif_device *device = &drm->client.device;
-	struct nvkm_device *nvkm_device = nvxx_device(drm);
-	struct nvkm_gr *gr = nvxx_gr(drm);
 	struct drm_nouveau_getparam *getparam = data;
 	struct pci_dev *pdev = to_pci_dev(dev->dev);
 
@@ -306,11 +211,10 @@ nouveau_abi16_ioctl_getparam(ABI16_IOCTL_ARGS)
 		getparam->value = 1;
 		break;
 	case NOUVEAU_GETPARAM_GRAPH_UNITS:
-		getparam->value = nvkm_gr_units(gr);
+		getparam->value = nvkm_gr_units(nvxx_gr(drm));
 		break;
 	case NOUVEAU_GETPARAM_EXEC_PUSH_MAX: {
 		int ib_max = getparam_dma_ib_max(device);
-
 		getparam->value = nouveau_exec_push_max_from_ib_max(ib_max);
 		break;
 	}
@@ -351,16 +255,10 @@ nouveau_abi16_ioctl_channel_alloc(ABI16_IOCTL_ARGS)
 	if (!drm->channel)
 		return nouveau_abi16_put(abi16, -ENODEV);
 
-	/* If uvmm wasn't initialized until now disable it completely to prevent
-	 * userspace from mixing up UAPIs.
-	 *
-	 * The client lock is already acquired by nouveau_abi16_get().
-	 */
 	__nouveau_cli_disable_uvmm_noinit(cli);
 
 	engine = NV_DEVICE_HOST_RUNLIST_ENGINES_GR;
 
-	/* hack to allow channel engine type specification on kepler */
 	if (device->info.family >= NV_DEVICE_INFO_V0_KEPLER) {
 		if (init->fb_ctxdma_handle == ~0) {
 			switch (init->tt_ctxdma_handle) {
@@ -396,7 +294,6 @@ nouveau_abi16_ioctl_channel_alloc(ABI16_IOCTL_ARGS)
 	if (!runm || init->fb_ctxdma_handle == ~0 || init->tt_ctxdma_handle == ~0)
 		return nouveau_abi16_put(abi16, -EINVAL);
 
-	/* allocate "abi16 channel" data and make up a handle for it */
 	chan = kzalloc(sizeof(*chan), GFP_KERNEL);
 	if (!chan)
 		return nouveau_abi16_put(abi16, -ENOMEM);
@@ -404,16 +301,11 @@ nouveau_abi16_ioctl_channel_alloc(ABI16_IOCTL_ARGS)
 	INIT_LIST_HEAD(&chan->notifiers);
 	list_add(&chan->head, &abi16->channels);
 
-	/* create channel object and initialise dma and fence management */
 	ret = nouveau_channel_new(cli, false, runm, init->fb_ctxdma_handle,
 				  init->tt_ctxdma_handle, &chan->chan);
 	if (ret)
 		goto done;
 
-	/* If we're not using the VM_BIND uAPI, we don't need a scheduler.
-	 *
-	 * The client lock is already acquired by nouveau_abi16_get().
-	 */
 	if (nouveau_cli_uvmm(cli)) {
 		ret = nouveau_sched_create(&chan->sched, drm, drm->sched_wq,
 					   chan->chan->dma.ib_max);
@@ -426,8 +318,7 @@ nouveau_abi16_ioctl_channel_alloc(ABI16_IOCTL_ARGS)
 	if (device->info.family >= NV_DEVICE_INFO_V0_TESLA)
 		init->pushbuf_domains = NOUVEAU_GEM_DOMAIN_VRAM |
 					NOUVEAU_GEM_DOMAIN_GART;
-	else
-	if (chan->chan->push.buffer->bo.resource->mem_type == TTM_PL_VRAM)
+	else if (chan->chan->push.buffer->bo.resource->mem_type == TTM_PL_VRAM)
 		init->pushbuf_domains = NOUVEAU_GEM_DOMAIN_VRAM;
 	else
 		init->pushbuf_domains = NOUVEAU_GEM_DOMAIN_GART;
@@ -440,14 +331,6 @@ nouveau_abi16_ioctl_channel_alloc(ABI16_IOCTL_ARGS)
 		init->nr_subchan = 2;
 	}
 
-	/* Workaround "nvc0" gallium driver using classes it doesn't allocate on
-	 * Kepler and above.  NVKM no longer always sets CE_CTX_VALID as part of
-	 * channel init, now we know what that stuff actually is.
-	 *
-	 * Doesn't matter for Kepler/Pascal, CE context stored in NV_RAMIN.
-	 *
-	 * Userspace was fixed prior to adding Ampere support.
-	 */
 	switch (device->info.family) {
 	case NV_DEVICE_INFO_V0_VOLTA:
 		ret = nvif_object_ctor(&chan->chan->user, "abi16CeWar", 0, VOLTA_DMA_COPY_A,
@@ -465,7 +348,6 @@ nouveau_abi16_ioctl_channel_alloc(ABI16_IOCTL_ARGS)
 		break;
 	}
 
-	/* Named memory object area */
 	ret = nouveau_gem_new(cli, PAGE_SIZE, 0, NOUVEAU_GEM_DOMAIN_GART,
 			      0, 0, &chan->ntfy);
 	if (ret == 0)
@@ -483,7 +365,7 @@ nouveau_abi16_ioctl_channel_alloc(ABI16_IOCTL_ARGS)
 
 	ret = drm_gem_handle_create(file_priv, &chan->ntfy->bo.base,
 				    &init->notifier_handle);
-	if (ret)
+		if (ret)
 		goto done;
 
 	ret = nvkm_mm_init(&chan->heap, 0, 0, PAGE_SIZE, 1);
@@ -549,7 +431,6 @@ nouveau_abi16_ioctl_grobj_alloc(ABI16_IOCTL_ARGS)
 		return nouveau_abi16_put(abi16, ret);
 
 	if ((init->class & 0x00ff) == 0x006e) {
-		/* nvsw: compatibility with older 0x*6e class identifier */
 		for (i = 0; !oclass && i < ret; i++) {
 			switch (sclass[i].oclass) {
 			case NVIF_CLASS_SW_NV04:
@@ -559,33 +440,6 @@ nouveau_abi16_ioctl_grobj_alloc(ABI16_IOCTL_ARGS)
 				oclass = sclass[i].oclass;
 				break;
 			default:
-				break;
-			}
-		}
-	} else
-	if ((init->class & 0x00ff) == 0x00b1) {
-		/* msvld: compatibility with incorrect version exposure */
-		for (i = 0; i < ret; i++) {
-			if ((sclass[i].oclass & 0x00ff) == 0x00b1) {
-				oclass = sclass[i].oclass;
-				break;
-			}
-		}
-	} else
-	if ((init->class & 0x00ff) == 0x00b2) { /* mspdec */
-		/* mspdec: compatibility with incorrect version exposure */
-		for (i = 0; i < ret; i++) {
-			if ((sclass[i].oclass & 0x00ff) == 0x00b2) {
-				oclass = sclass[i].oclass;
-				break;
-			}
-		}
-	} else
-	if ((init->class & 0x00ff) == 0x00b3) { /* msppp */
-		/* msppp: compatibility with incorrect version exposure */
-		for (i = 0; i < ret; i++) {
-			if ((sclass[i].oclass & 0x00ff) == 0x00b3) {
-				oclass = sclass[i].oclass;
 				break;
 			}
 		}
@@ -627,7 +481,6 @@ nouveau_abi16_ioctl_notifierobj_alloc(ABI16_IOCTL_ARGS)
 		return -ENOMEM;
 	device = &abi16->cli->device;
 
-	/* completely unnecessary for these chipsets... */
 	if (unlikely(device->info.family >= NV_DEVICE_INFO_V0_FERMI))
 		return nouveau_abi16_put(abi16, -EINVAL);
 
@@ -642,7 +495,7 @@ nouveau_abi16_ioctl_notifierobj_alloc(ABI16_IOCTL_ARGS)
 	list_add(&ntfy->head, &chan->notifiers);
 
 	ret = nvkm_mm_head(&chan->heap, 0, 1, info->size, info->size, 1,
-			   &ntfy->node);
+			   			   &ntfy->node);
 	if (ret)
 		goto done;
 
@@ -653,8 +506,7 @@ nouveau_abi16_ioctl_notifierobj_alloc(ABI16_IOCTL_ARGS)
 		args.access = NV_DMA_V0_ACCESS_VM;
 		args.start += chan->ntfy_vma->addr;
 		args.limit += chan->ntfy_vma->addr;
-	} else
-	if (drm->agp.bridge) {
+	} else if (drm->agp.bridge) {
 		args.target = NV_DMA_V0_TARGET_AGP;
 		args.access = NV_DMA_V0_ACCESS_RDWR;
 		args.start += drm->agp.base + chan->ntfy->offset;
@@ -695,7 +547,6 @@ nouveau_abi16_ioctl_gpuobj_free(ABI16_IOCTL_ARGS)
 	if (!chan)
 		return nouveau_abi16_put(abi16, -EINVAL);
 
-	/* synchronize with the user channel and destroy the gpu object */
 	nouveau_channel_idle(chan->chan);
 
 	list_for_each_entry(ntfy, &chan->notifiers, head) {
@@ -774,7 +625,8 @@ nouveau_abi16_ioctl_new(struct nouveau_abi16 *abi16, struct nvif_ioctl_v0 *ioctl
 		return -EINVAL;
 
 	if (!ioctl->route) {
-		if (ioctl->object || args->oclass != NV_DEVICE)
+		if (ioctl->object || args 
+				->oclass != NV_DEVICE)
 			return -EINVAL;
 
 		obj = nouveau_abi16_obj_new(abi16, DEVICE, args->object);
@@ -888,3 +740,4 @@ done_free:
 	kfree(ioctl);
 	return ret;
 }
+		

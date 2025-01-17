@@ -81,7 +81,7 @@ static int nouveau_optimus_dsm(acpi_handle handle, int func, int arg, uint32_t *
 
 	/* ACPI is little endian, AABBCCDD becomes {DD,CC,BB,AA} */
 	for (i = 0; i < 4; i++)
-		args_buff[i] = (arg >> i * 8) & 0xFF;
+		args_buff[i] = (arg >> (i * 8)) & 0xFF;
 
 	*result = 0;
 	obj = acpi_evaluate_dsm_typed(handle, &nouveau_op_dsm_muid, 0x00000100,
@@ -90,11 +90,11 @@ static int nouveau_optimus_dsm(acpi_handle handle, int func, int arg, uint32_t *
 		acpi_handle_info(handle, "failed to evaluate _DSM\n");
 		return AE_ERROR;
 	} else {
-		if (obj->buffer.length == 4) {
-			*result |= obj->buffer.pointer[0];
-			*result |= (obj->buffer.pointer[1] << 8);
-			*result |= (obj->buffer.pointer[2] << 16);
-			*result |= (obj->buffer.pointer[3] << 24);
+		if (obj->buffer.length == 4)
+				*result |= obj->buffer.pointer[0];
+		*result |= (obj->buffer.pointer[1] << 8);
+		*result |= (obj->buffer.pointer[2] << 16);
+		*result |= (obj->buffer.pointer[3] << 24);
 		}
 		ACPI_FREE(obj);
 	}
@@ -318,7 +318,6 @@ static bool nouveau_dsm_detect(void)
 		ret = true;
 	}
 
-
 	return ret;
 }
 
@@ -346,7 +345,6 @@ void nouveau_switcheroo_optimus_dsm(void)
 
 	nouveau_optimus_dsm(nouveau_dsm_priv.dhandle, NOUVEAU_DSM_OPTIMUS_CAPS,
 		NOUVEAU_DSM_OPTIMUS_SET_POWERDOWN, &result);
-
 }
 
 void nouveau_unregister_dsm_handler(void)

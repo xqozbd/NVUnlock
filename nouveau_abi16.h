@@ -25,7 +25,7 @@ struct nouveau_abi16_chan {
 	struct list_head notifiers;
 	struct nouveau_bo *ntfy;
 	struct nouveau_vma *ntfy_vma;
-	struct nvkm_mm  heap;
+	struct nvkm_mm heap;
 	struct nouveau_sched *sched;
 };
 
@@ -36,9 +36,9 @@ struct nouveau_abi16 {
 };
 
 struct nouveau_abi16 *nouveau_abi16_get(struct drm_file *);
-int  nouveau_abi16_put(struct nouveau_abi16 *, int);
+int nouveau_abi16_put(struct nouveau_abi16 *, int);
 void nouveau_abi16_fini(struct nouveau_abi16 *);
-s32  nouveau_abi16_swclass(struct nouveau_drm *);
+s32 nouveau_abi16_swclass(struct nouveau_drm *);
 int nouveau_abi16_ioctl(struct drm_file *, void __user *user, u32 size);
 
 #define NOUVEAU_GEM_DOMAIN_VRAM      (1 << 1)
@@ -60,4 +60,4 @@ struct drm_nouveau_setparam {
 #define DRM_IOCTL_NOUVEAU_NOTIFIEROBJ_ALLOC  DRM_IOWR(DRM_COMMAND_BASE + DRM_NOUVEAU_NOTIFIEROBJ_ALLOC, struct drm_nouveau_notifierobj_alloc)
 #define DRM_IOCTL_NOUVEAU_GPUOBJ_FREE        DRM_IOW (DRM_COMMAND_BASE + DRM_NOUVEAU_GPUOBJ_FREE, struct drm_nouveau_gpuobj_free)
 
-#endif
+#endif /* __NOUVEAU_ABI16_H__ */
