@@ -23,6 +23,7 @@
 - (BOOL)mapDeviceMemory;
 - (void)unmapDeviceMemory;
 - (BOOL)probeDeviceCapabilities;
+- (BOOL)initializeGPU;
 
 @end
 
@@ -42,7 +43,7 @@
             case 0x1F14: // RTX 2080
             case 0x1F15: // RTX 2080 SUPER
             case 0x1E04: // RTX 2080 TI
-
+            
             // RTX 3000 Series
             case 0x2482: // RTX 3050
             case 0x2460: // RTX 3060
@@ -59,10 +60,6 @@
             case 0x2704: // RTX 4080
             case 0x2684: // RTX 4090
 
-            // RTX 5000 Series (future)
-            case 0x2B80: // RTX 5070
-            case 0x2B82: // RTX 5080
-            case 0x2B84: // RTX 5090
                 return YES;
             default:
                 return NO;
@@ -138,6 +135,27 @@
     return YES;
 }
 
+- (BOOL)initializeGPU {
+    // Example initialization: reset GPU registers, configure default states, etc.
+    // For demonstration, we simply log that initialization is in progress.
+    NSLog(@"Initializing GPU: %@", self.gpuModel);
+    
+    // Insert hardware-specific initialization code here
+    // For instance, writing to certain registers via _mmioMap.
+    // This is a stub implementation—adapt it to your hardware specs.
+    
+    // Check if MMIO mapping exists before proceeding
+    if (_mmioMap == 0) {
+        NSLog(@"GPU initialization failed: MMIO map is not valid");
+        return NO;
+    }
+    
+    
+    
+    NSLog(@"GPU initialization completed successfully");
+    return YES;
+}
+
 - (BOOL)start:(IOService *)provider {
     _pciDevice = OSDynamicCast(IOPCIDevice, provider);
     
@@ -150,7 +168,6 @@
         NSLog(@"Device does not match RTX GPU");
         return NO;
     }
-
 
     // Enable PCI device
     [_pciDevice setMemoryEnable:YES];
@@ -167,6 +184,13 @@
         NSLog(@"Failed to map device memory");
         return NO;
     }
+    
+    // Perform GPU initialization
+    if (![self initializeGPU]) {
+        NSLog(@"GPU initialization failed");
+        [self unmapDeviceMemory];
+        return NO;
+    }
 
     // Register the driver
     if (![super start:provider]) {
@@ -174,7 +198,7 @@
         return NO;
     }
 
-    NSLog(@"Nouveau GPU Driver initialized: %@", self.gpuModel);
+    NSLog(@"NVunlock GPU Driver initialized: %@", self.gpuModel);
     return YES;
 }
 
